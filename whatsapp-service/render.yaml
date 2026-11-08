@@ -1,0 +1,31 @@
+﻿# ============================================================
+# Render.com Blueprint — Account 2 (naya account)
+# Services: WhatsApp Bot + Python OCR
+# ============================================================
+
+services:
+  # WhatsApp Puppeteer Bot
+  - type: web
+    name: laritraders-whatsapp
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: WA_INTERNAL_SECRET
+        sync: false
+
+  # Python FastAPI OCR Service
+  - type: web
+    name: laritraders-ocr
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    region: singapore
+    plan: free
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false

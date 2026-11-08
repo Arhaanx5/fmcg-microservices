@@ -1,0 +1,35 @@
+# ============================================================
+# Render.com Blueprint — Account 2 (Microservices)
+# Services: WhatsApp Puppeteer/Baileys Bot + Python FastAPI OCR
+# ============================================================
+
+services:
+  # ── 1. WhatsApp Automated Broadcast Bot ─────────────────────
+  - type: web
+    name: laritraders-whatsapp
+    runtime: docker
+    dockerfilePath: ./whatsapp-service/Dockerfile
+    dockerContext: ./whatsapp-service
+    region: singapore
+    plan: free
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: WA_INTERNAL_SECRET
+        sync: false
+
+  # ── 2. Python FastAPI Gemini OCR Microservice ──────────────
+  - type: web
+    name: laritraders-ocr
+    runtime: docker
+    dockerfilePath: ./ocr-service/Dockerfile
+    dockerContext: ./ocr-service
+    region: singapore
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: WA_INTERNAL_SECRET
+        sync: false
+

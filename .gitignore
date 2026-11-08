@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Auth sessions & sensitive data
+baileys_auth_info/
+session_data/
+.wwebjs_cache/
+.wwebjs_auth/
+queue.json
+dead_letter.json
+
+# Environment Secrets
+.env
+.env.local
+
+# Logs
+*.log
+service.log
+service_*.log
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
