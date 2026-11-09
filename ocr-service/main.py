@@ -21,6 +21,7 @@ import logging
 import base64
 import asyncio
 import io
+import struct
 import requests
 from typing import List, Optional, Dict, Any
 
@@ -101,6 +102,10 @@ class TextGenerationRequest(BaseModel):
 class StructuredRequest(BaseModel):
     prompt: str
     systemInstruction: Optional[str] = None
+
+class SpeechGenerationRequest(BaseModel):
+    prompt: str
+    voice_name: Optional[str] = "Puck"
 
 # ── AI Invoice Extraction Prompt ───────────────────────────────────────────
 PROMPT_OCR = """
@@ -351,6 +356,82 @@ async def parse_structured(req: StructuredRequest):
         return json.loads(cleaned)
     except json.JSONDecodeError:
         return {"rawText": response_text}
+
+def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1, bits_per_sample: int = 16) -> bytes:
+    """
+    Wraps raw PCM audio in a standard 44-byte RIFF/WAVE header for universal browser audio playback.
+    """
+    byte_rate = sample_rate * channels * (bits_per_sample // 8)
+    block_align = channels * (bits_per_sample // 8)
+    subchunk2_size = len(pcm_bytes)
+    chunk_size = 36 + subchunk2_size
+    header = struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF', chunk_size, b'WAVE',
+        b'fmt ', 16, 1, channels, sample_rate, byte_rate, block_align, bits_per_sample,
+        b'data', subchunk2_size
+    )
+    return header + pcm_bytes
+
+@app.post("/ocr/generate-speech", dependencies=[Depends(verify_internal_secret)])
+async def generate_speech(req: SpeechGenerationRequest):
+    """
+    Generates high-definition neural voice audio via Gemini 2.5 Flash TTS.
+    Returns standard audio/wav base64 data URL for direct browser playback.
+    """
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY environment variable is not configured.")
+
+    voice_name = req.voice_name or "Puck"
+    models_to_try = ["gemini-2.5-flash-preview-tts", "gemini-2.5-flash"]
+
+    payload = {
+        "contents": [{"parts": [{"text": req.prompt}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": voice_name
+                    }
+                }
+            }
+        }
+    }
+
+    headers = {"Content-Type": "application/json"}
+    last_error = None
+
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={API_KEY}"
+        logger.info(f"Attempting Gemini TTS generation with model {model_name} (Voice: {voice_name})...")
+        try:
+            res = await asyncio.to_thread(requests.post, url, json=payload, headers=headers)
+            if res.status_code == 200:
+                res_data = res.json()
+                cand = res_data.get('candidates', [{}])[0]
+                part = cand.get('content', {}).get('parts', [{}])[0]
+                inline_data = part.get('inlineData')
+                if inline_data and 'data' in inline_data:
+                    raw_pcm_b64 = inline_data['data']
+                    pcm_bytes = base64.b64decode(raw_pcm_b64)
+                    wav_bytes = pcm_to_wav(pcm_bytes, sample_rate=24000, channels=1, bits_per_sample=16)
+                    wav_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+                    logger.info(f"Generated {len(wav_bytes)} bytes WAV audio successfully.")
+                    return {
+                        "success": True,
+                        "audioBase64": f"data:audio/wav;base64,{wav_b64}",
+                        "voice": voice_name,
+                        "format": "wav"
+                    }
+            else:
+                logger.warning(f"TTS Model {model_name} failed ({res.status_code}): {res.text[:200]}")
+                last_error = f"HTTP {res.status_code}: {res.text[:200]}"
+        except Exception as exc:
+            logger.error(f"Error during Gemini TTS with {model_name}: {exc}")
+            last_error = str(exc)
+
+    raise HTTPException(status_code=500, detail=f"Gemini TTS generation failed. Last error: {last_error}")
 
 if __name__ == "__main__":
     import uvicorn
